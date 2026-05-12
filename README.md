@@ -17,14 +17,14 @@ We reproduce the RoBERTa-base row of **Table 2** from the paper on the SST-2 sen
 - Full fine-tuning: **94.8%** val accuracy, 125M trainable params
 - LoRA $r = 8$: **95.1%** val accuracy, 0.3M trainable params
 
-We extend the paper's experiments with a joint sweep over $r \in \{2, 4, 6, 8\}$ and $\alpha \in \{2, 4, 6, 8\}$ to investigate how the $\alpha/r$ ratio affects training stability — a hyperparameter interaction the paper does not analyze in detail.
+We extend the paper's experiments with a joint sweep over $r \in \{2, 4, 6, 8\}$ and $\alpha \in \{2, 4, 6, 8\}$ to investigate how the $\alpha/r$ ratio affects training stability, a hyperparameter interaction the paper does not analyze in detail.
 
 ## 3. GitHub Contents
 
 ```
 .
 ├── code/
-│   └── LoRA_RoBERTa_Classification.ipynb   # main notebook (Colab)
+│   └── LoRA_RoBERTa_Classification.ipynb    # main notebook (Colab)
 ├── data/
 │   └── README.md                            # SST-2 auto-downloads from HuggingFace
 ├── results/
@@ -38,7 +38,7 @@ We extend the paper's experiments with a joint sweep over $r \in \{2, 4, 6, 8\}$
 │   │   ├── rank = 6, alpha = 6/
 │   │   ├── rank = 6, alpha = 8/
 │   │   └── rank = 8, alpha = 8/
-│   └── figures/                             # accuracy / loss plots, ablation charts
+│   └── figures/                             # accuracy / loss plots
 ├── poster/
 │   └── LoRA_Poster.pdf
 ├── report/
@@ -54,31 +54,31 @@ We extend the paper's experiments with a joint sweep over $r \in \{2, 4, 6, 8\}$
 - **LoRA adapter.** A `LoRA_Adapter` class wraps each `nn.Linear` and adds trainable matrices $A \in \mathbb{R}^{r \times d_\text{in}}$ (Gaussian init, std $1/\sqrt{r}$) and $B \in \mathbb{R}^{d_\text{out} \times r}$ (zero init), so $\Delta W = BA = 0$ at step 0. We patch the **query, key, and value** projections in all 12 encoder layers (36 adapters total). The paper uses Q+V; Q+K+V is a strict superset.
 - **Task & data.** SST-2 (Stanford Sentiment Treebank), 67,349 train / 872 validation. The public test split has hidden labels (`label == -1`), so we evaluate on validation, matching the paper's GLUE convention.
 - **Training.** AdamW optimizer, cross-entropy loss, batch size 16, max sequence length 512, 10 epochs, learning rate $5 \times 10^{-4}$, RoBERTa-base tokenizer.
-- **Ablation grid.** Joint sweep over rank $r \in \{2, 4, 6, 8\}$ and scaling factor $\alpha \in \{2, 4, 6, 8\}$.
+- **Hyperparameter sweep.** Joint sweep over rank $r \in \{2, 4, 6, 8\}$ and scaling factor $\alpha \in \{2, 4, 6, 8\}$.
 - **Hardware.** Single NVIDIA A100 in Google Colab.
 
 **Deviations from the paper:**
 - Q+K+V instead of Q+V (superset of paper's recommended setup).
-- 10 epochs instead of 30–60 due to compute budget.
+- 10 epochs instead of 30-60 due to compute budget.
 - Full-FT baseline uses the paper's reported number rather than a self-trained run at matched epochs.
 - Single seed instead of median over 5.
 
 ## 5. Reproduction Steps
 
 1. Open `code/LoRA_RoBERTa_Classification.ipynb` in Google Colab and connect to an A100 GPU.
-2. Mount your Google Drive — checkpoints and per-epoch CSVs write to `MyDrive/CS4782 Project/results/<timestamp>/`.
+2. Mount your Google Drive: checkpoints and per-epoch CSVs write to `MyDrive/CS4782 Project/results/<timestamp>/`.
 3. Set `rank` and `lora_alpha` in the hyperparameters cell to the configuration you want.
 4. Run all cells. Each $(r, \alpha)$ setting takes ~1–2 hours.
 5. Outputs land in the timestamped results folder:
-   - `LoRA_training.csv` — per-epoch training and validation loss
-   - `LoRA_testing.csv` — final evaluation results
-   - `LoRA_best_model.pth` — best checkpoint by validation loss
+   - `LoRA_training.csv` - per-epoch training and validation loss
+   - `LoRA_testing.csv` - final evaluation results
+   - `LoRA_best_model.pth` - best checkpoint by validation loss
 
 **Dependencies** (default-available on Colab): `torch`, `transformers`, `datasets`, `numpy`, `matplotlib`, `pandas`, `scikit-learn`. No additional install required.
 
 ## 6. Results / Insights
 
-Our best $r = 8$, $\alpha = 8$ run reached **90.9% test accuracy** on SST-2, compared to the paper's reported 95.1%. We attribute the gap primarily to training for 10 epochs rather than 30–60 — at the end of epoch 10, the training loss curve was still consistently decreasing.
+Our $r = 8$, $\alpha = 8$ run reached **90.9% test accuracy** on SST-2, compared to the paper's reported 95.1%. We attribute the gap primarily to training for 10 epochs rather than 30–60: at the end of epoch 10, the training loss curve was still consistently decreasing.
 
 ### Key findings
 
@@ -86,7 +86,7 @@ Our best $r = 8$, $\alpha = 8$ run reached **90.9% test accuracy** on SST-2, com
 
 2. **The $\alpha / r$ scaling factor is more important than the paper suggests.** When we held $\alpha = 8$ fixed and swept rank, $r = 2$ and $r = 4$ failed to train. We initially read this as a rank threshold. It is actually an $\alpha/r$ effect: at $r = 2$, $\alpha/r = 4$, which makes the low-rank update too large relative to the frozen pretrained weights.
 
-3. **Setting $\alpha = r$ recovers low-rank performance — and improves it.** Retraining $r = 2, 4, 6$ with matched $\alpha$ not only fixed the failures but *improved* test accuracy below $r = 8$. We suspect that for binary classification, a tighter bottleneck forces the model to discard noise and focus on the discriminative signal.
+3. **Setting $\alpha = r$ recovers low-rank performance and improves it.** Retraining $r = 2, 4, 6$ with matched $\alpha$ not only fixed the failures but *improved* test accuracy below $r = 8$. We suspect that for binary classification, a tighter bottleneck forces the model to discard noise and focus on the discriminative signal.
 
 4. **Maximum stable $\alpha$ is roughly $2r$.** Holding $r = 2$ fixed and sweeping $\alpha \in \{2, 4, 6, 8\}$, performance is stable at $\alpha \leq 4$ and degrades sharply above that. This gives a concrete practical rule: keep $\alpha/r \leq 2$.
 
@@ -94,7 +94,7 @@ Our best $r = 8$, $\alpha = 8$ run reached **90.9% test accuracy** on SST-2, com
 
 ## 7. Conclusion
 
-LoRA reproduces well on a single-GPU setup with a smaller compute budget than the paper used. The most informative finding for us was the $\alpha/r$ interaction. The paper treats $\alpha$ as a fixed-and-forget convenience knob set equal to $r$, but our sweep shows the ratio actively determines whether training succeeds at low rank. This suggests the practical question "what rank should I use?" is inseparable from "what $\alpha$ should I use?" — and that defaulting to $\alpha = r$, or any rule that keeps $\alpha/r \leq 2$, is more important than the paper's framing implies.
+LoRA reproduces well on a single-GPU setup with a smaller compute budget than the paper used. The most informative finding for us was the $\alpha/r$ interaction. The paper treats $\alpha$ as a fixed-and-forget convenience knob set equal to $r$, but our sweep shows the ratio actively determines whether training succeeds at low rank. This suggests the practical question "what rank should I use?" is inseparable from "what $\alpha$ should I use?", and that defaulting to $\alpha = r$, or any rule that keeps $\alpha/r \leq 2$, is more important than the paper's framing implies.
 
 ## 8. References
 
@@ -102,4 +102,4 @@ LoRA reproduces well on a single-GPU setup with a smaller compute budget than th
 
 ## 9. Acknowledgements
 
-This work was completed as the final project for CS 4782 (Deep Learning) at Cornell University, Spring 2026. Thanks to the course staff for guidance on project scope and evaluation, and to HuggingFace for the `transformers` and `datasets` libraries that made this implementation tractable on a single GPU.
+This work was completed as the final project for CS 4782 (Deep Learning) at Cornell University, Spring 2026. Thanks to the course staff for guidance on project scope and evaluation, to HuggingFace for the `transformers` and `datasets` libraries that made this implementation tractable on a single GPU. Credits to Facebook AI for RoBERTa-base pre-trained model and Stanford NLP for Stanford Sentiment Treebank v2 dataset.
